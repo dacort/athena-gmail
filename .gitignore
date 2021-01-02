@@ -1,0 +1,6 @@
+# authentication data
+token.pickle
+credentials.json
+
+# dev environment
+venv/
