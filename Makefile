@@ -1,4 +1,4 @@
-.PHONY: docker
+.PHONY: docker test
 
 # Environment variables
 AWS_REGION?=us-east-1
@@ -14,5 +14,7 @@ docker:
 	docker build -t ${CONTAINER_LABEL} .
 	docker tag ${CONTAINER_LABEL}:latest ${REPOSITORY_ID}/${CONTAINER_LABEL}:latest
 	docker push ${REPOSITORY_ID}/${CONTAINER_LABEL}:latest
-	aws lambda update-function-code --function-name ${LAMBDA_FUNCTION_NAME} --image-uri "${REPOSITORY_ID}/${CONTAINER_LABEL}@$(IMAGE_DIGEST)" --region ${AWS_REGION}
-	
+	# aws lambda update-function-code --function-name ${LAMBDA_FUNCTION_NAME} --image-uri "${REPOSITORY_ID}/${CONTAINER_LABEL}@$(IMAGE_DIGEST)" --region ${AWS_REGION}
+
+test:
+	python -m pytest test

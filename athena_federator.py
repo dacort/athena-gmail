@@ -2,6 +2,8 @@ from abc import ABCMeta, abstractmethod
 import base64
 from uuid import uuid4
 
+import pyarrow as pa
+
 # https://github.com/awslabs/aws-athena-query-federation/blob/master/athena-federation-sdk/src/main/java/com/amazonaws/athena/connector/lambda/handlers/FederationCapabilities.java#L33
 CAPABILITIES = 23
 
@@ -76,13 +78,11 @@ class GetTableResponse:
         self.schema = schema
 
     def as_dict(self):
-        pya_schema = base64.b64encode(self.schema.serialize().slice(4)).decode("utf-8")
-
         return {
             "@type": "GetTableResponse",
             "catalogName": self.catalogName,
             "tableName": {'schemaName': self.databaseName, 'tableName': self.tableName},
-            "schema": {"schema": pya_schema},
+            "schema": {"schema": AthenaSDKUtils.encode_pyarrow_object(self.schema)},
             "partitionColumns": [],
             "requestType": self.request_type
         }
@@ -91,18 +91,42 @@ class GetTableResponse:
 class GetTableLayoutResponse:
     request_type = 'GET_TABLE_LAYOUT'
 
-    def __init__(self, catalogName, databaseName, tableName, partition_config) -> None:
+    def __init__(self, catalogName, databaseName, tableName, partitions=None) -> None:
         self.catalogName = catalogName
         self.databaseName = databaseName
         self.tableName = tableName
-        self.partition_config = partition_config
+        self.partitions = partitions
+
+    def encoded_partition_config(self):
+        """
+        Encodes the schema and each record in the partition config.
+        """
+        partition_keys = self.partitions.keys()
+        data = [pa.array(self.partitions[key]) for key in partition_keys]
+        batch = pa.RecordBatch.from_arrays(data, list(partition_keys))
+        return {
+            "aId": str(uuid4()),
+            "schema": AthenaSDKUtils.encode_pyarrow_object(batch.schema),
+            "records": AthenaSDKUtils.encode_pyarrow_object(batch)
+        }
 
     def as_dict(self):
+        # If _no_ partition_config is provided, we *must* return at least 1 partition
+        # otherwise Athena will not know to retrieve data.
+        if self.partitions is None:
+            self.partitions = {'partitionId': [1]}
+            # self.partitions = {
+            #     'schema': pa.schema([('partitionId', pa.int32())]),
+            #     'records': {
+            #         'partitionId': [1]
+            #     },
+            # }
+
         return {
             "@type": "GetTableLayoutResponse",
             "catalogName": self.catalogName,
             "tableName": {'schemaName': self.databaseName, 'tableName': self.tableName},
-            "partitions": self.partition_config,
+            "partitions": self.encoded_partition_config(),
             "requestType": self.request_type
         }
 
@@ -133,19 +157,45 @@ class ReadRecordsResponse:
         self.records = records
 
     def as_dict(self):
-        pya_schema = base64.b64encode(self.schema.serialize().slice(4)).decode("utf-8")
-        pya_records = base64.b64encode(self.records.serialize().slice(4)).decode("utf-8")
-
         return {
             "@type": "ReadRecordsResponse",
             "catalogName": self.catalogName,
             "records": {
                 "aId": str(uuid4()),
-                "schema": pya_schema,
-                "records": pya_records
+                "schema": AthenaSDKUtils.encode_pyarrow_object(self.schema),
+                "records": AthenaSDKUtils.encode_pyarrow_object(self.records)
             },
             "requestType": self.request_type
         }
+
+
+class AthenaSDKUtils:
+    def encode_pyarrow_object(pya_obj):
+        """
+        Encodes either a PyArrow Schema or set of Records to Base64.
+        I'm not entirely sure why, but I had to cut off the first 4 characters
+        of the `serialize()` output to be compatible with the Java SDK.
+        """
+        return base64.b64encode(
+            pya_obj.serialize().slice(4)
+        ).decode('utf-8')
+
+    def parse_encoded_schema(b64_schema):
+        return pa.read_schema(pa.BufferReader(base64.b64decode(b64_schema)))
+
+    def encode_pyarrow_records(pya_schema, record_hash):
+        return pa.RecordBatch.from_arrays(
+            [pa.array(record_hash[name]) for name in pya_schema.names],
+            schema=pya_schema
+        )
+
+    def decode_pyarrow_records(b64_schema, b64_records):
+        """
+        Decodes an encoded record set provided a similarly encoded schema.
+        Returns just the records as the schema will be included with that
+        """
+        pa_schema = AthenaSDKUtils.parse_encoded_schema(b64_schema)
+        return pa.read_record_batch(base64.b64decode(b64_records), pa_schema)
 
 
 class AthenaFederator(metaclass=ABCMeta):

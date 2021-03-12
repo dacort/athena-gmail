@@ -53,6 +53,12 @@ docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/gathena:latest
 
 - Create a Lambda function with the above container
 
+- Set an environment variable on the Lambda function with a spill bucket
+
+```shell
+aws lambda update-function-configuration --function-name gathena_container --environment 'Variables={TARGET_BUCKET=<BUCKET_NAME>}'      
+```
+
 - Add a new data source to Athena pointing to the Lambda function
 
 - If changing code, use `AWS_ACCOUNT_ID=123456789012 make docker` to rebuild and update your Lambda function.

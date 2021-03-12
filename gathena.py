@@ -8,7 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import BatchHttpRequest
 import pyarrow as pa
 
-from athena_federator import AthenaFederator, GetSplitsResponse, GetTableLayoutResponse, GetTableResponse, ListSchemasResponse, PingResponse, ListTablesResponse, ReadRecordsResponse
+from athena_federator import AthenaFederator, AthenaSDKUtils, GetSplitsResponse, GetTableLayoutResponse, GetTableResponse, ListSchemasResponse, PingResponse, ListTablesResponse, ReadRecordsResponse
 
 # These variables are used for S3 spill locations
 S3_BUCKET = os.environ['TARGET_BUCKET']
@@ -45,14 +45,14 @@ class GmailAthena(AthenaFederator):
         return tr
 
     def GetTableLayoutRequest(self) -> GetTableLayoutResponse:
-        default_partition_schema = {
-            "aId": str(uuid4()),
-            "schema": "nAAAABAAAAAAAAoADgAGAA0ACAAKAAAAAAADABAAAAAAAQoADAAAAAgABAAKAAAACAAAAAgAAAAAAAAAAQAAABgAAAAAABIAGAAUABMAEgAMAAAACAAEABIAAAAUAAAAFAAAABwAAAAAAAIBIAAAAAAAAAAAAAAACAAMAAgABwAIAAAAAAAAASAAAAALAAAAcGFydGl0aW9uSWQAAAAAAA==",
-            "records": "jAAAABQAAAAAAAAADAAWAA4AFQAQAAQADAAAABAAAAAAAAAAAAADABAAAAAAAwoAGAAMAAgABAAKAAAAFAAAADgAAAABAAAAAAAAAAAAAAACAAAAAAAAAAAAAAABAAAAAAAAAAgAAAAAAAAABAAAAAAAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAAAAAAA=="
-        }
-        tlr = GetTableLayoutResponse(
-            "gmail", "personal", "All Mail", default_partition_schema)
-        return tlr
+        # There are a lot of search operators built into Gmail ( https://support.google.com/mail/answer/7190?hl=en )
+        # and, as such, probably a lot of things we _can_ partition on.
+        # We won't partition yet, but at the very least it probably makes sense to partition on date...
+
+        # The partition schema above was reused from CloudTrail example - we need to
+        # add (also?) the schema we want to pass back in a split?
+        # e.g. messageIds: pa.list_(pa.int64())
+        return GetTableLayoutResponse("gmail", "personal", "All Mail", None)
 
     def GetSplitsRequest(self) -> GetSplitsResponse:
         splits = [
@@ -70,9 +70,7 @@ class GmailAthena(AthenaFederator):
         return sr
 
     def ReadRecordsRequest(self) -> ReadRecordsResponse:
-        schema = self._parse_schema(self.event['schema']['schema'])
-        # pa_records = self._get_sample_records(schema)
-        # return ReadRecordsResponse("gmail", schema, pa_records)
+        schema = AthenaSDKUtils.parse_encoded_schema(self.event['schema']['schema'])
 
         # Try to get a list of message IDs from the gmail API
         svc = self._get_gmail_service()
@@ -104,8 +102,7 @@ class GmailAthena(AthenaFederator):
         # .execute() is a blocking function
 
         # Convert the records to pyarrow records
-        pa_records = pa.RecordBatch.from_arrays(
-            [pa.array(records[name]) for name in schema.names], schema=schema)
+        pa_records = AthenaSDKUtils.encode_pyarrow_records(schema, records)
         rrr = ReadRecordsResponse("gmail", schema, pa_records)
         return rrr
 
