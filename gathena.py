@@ -1,11 +1,8 @@
-import base64
 import pickle
 import os
 import time
-from uuid import uuid4
 
 from googleapiclient.discovery import build
-from googleapiclient.http import BatchHttpRequest
 import pyarrow as pa
 
 from athena.federation.utils import AthenaSDKUtils
