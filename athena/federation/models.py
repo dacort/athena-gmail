@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from athena.federation.utils import encode_pyarrow_object, encode_pyarrow_records, parse_encoded_schema, decode_pyarrow_records
+from athena.federation.utils import AthenaSDKUtils
 
 import pyarrow as pa
 
@@ -82,7 +82,7 @@ class GetTableResponse:
             "@type": "GetTableResponse",
             "catalogName": self.catalogName,
             "tableName": {'schemaName': self.databaseName, 'tableName': self.tableName},
-            "schema": {"schema": encode_pyarrow_object(self.schema)},
+            "schema": {"schema": AthenaSDKUtils.encode_pyarrow_object(self.schema)},
             "partitionColumns": [],
             "requestType": self.request_type
         }
@@ -106,8 +106,8 @@ class GetTableLayoutResponse:
         batch = pa.RecordBatch.from_arrays(data, list(partition_keys))
         return {
             "aId": str(uuid4()),
-            "schema": encode_pyarrow_object(batch.schema),
-            "records": encode_pyarrow_object(batch)
+            "schema": AthenaSDKUtils.encode_pyarrow_object(batch.schema),
+            "records": AthenaSDKUtils.encode_pyarrow_object(batch)
         }
 
     def as_dict(self):
@@ -162,8 +162,8 @@ class ReadRecordsResponse:
             "catalogName": self.catalogName,
             "records": {
                 "aId": str(uuid4()),
-                "schema": encode_pyarrow_object(self.schema),
-                "records": encode_pyarrow_object(self.records)
+                "schema": AthenaSDKUtils.encode_pyarrow_object(self.schema),
+                "records": AthenaSDKUtils.encode_pyarrow_object(self.records)
             },
             "requestType": self.request_type
         }

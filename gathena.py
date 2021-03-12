@@ -8,7 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import BatchHttpRequest
 import pyarrow as pa
 
-from athena_federator import AthenaSDKUtils
+from athena.federation.utils import AthenaSDKUtils
 from athena.federation.federator import AthenaFederator
 import athena.federation.models as models
 

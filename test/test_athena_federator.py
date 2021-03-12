@@ -2,7 +2,8 @@ from base64 import decode
 import pyarrow as pa
 
 
-from athena_federator import AthenaSDKUtils, GetTableLayoutResponse, GetTableResponse, ReadRecordsResponse
+from athena.federation.utils import AthenaSDKUtils
+from athena.federation.models import GetTableLayoutResponse, GetTableResponse, ReadRecordsResponse
 
 CATALOG_NAME = 'sample_catalog'
 DB_NAME = 'sample_db'
@@ -70,7 +71,7 @@ def test_read_records_response():
 
     rrr = ReadRecordsResponse(CATALOG_NAME, pya_schema, pya_records)
     resp = rrr.as_dict()
-    b64_schema = resp.get('records').get('schema') 
+    b64_schema = resp.get('records').get('schema')
     b64_records = resp.get('records').get('records')
 
     # Basic validation
@@ -80,8 +81,8 @@ def test_read_records_response():
     assert b64_records == 'yAAAABQAAAAAAAAADAAWAAYABQAIAAwADAAAAAADAwAYAAAAMAAAAAAAAAAAAAoAGAAMAAQACAAKAAAAbAAAABAAAAACAAAAAAAAAAAAAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAACAAAAAAAAAAEAAAAAAAAAAAAAAAAgAAAAIAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAACAAAAAAAAAAAAAAAFAAAACwAAAAAAAABkYW1vbmRhY29ydAAAAAAA'
 
     # Reverse validation
-    decoded_records = AthenaSDKUtils.decode_pyarrow_records(b64_schema, b64_records)
+    decoded_records = AthenaSDKUtils.decode_pyarrow_records(
+        b64_schema, b64_records)
     assert decoded_records.schema.names == ['id', 'name']
     assert decoded_records[0].to_pylist() == records['id']
     assert decoded_records[1].to_pylist() == records['name']
-
