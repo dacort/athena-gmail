@@ -1,17 +1,18 @@
-import base64
 import pickle
 import os
 import time
-from uuid import uuid4
 
 from googleapiclient.discovery import build
-from googleapiclient.http import BatchHttpRequest
 import pyarrow as pa
 
-from athena_federator import AthenaFederator, GetSplitsResponse, GetTableLayoutResponse, GetTableResponse, ListSchemasResponse, PingResponse, ListTablesResponse, ReadRecordsResponse
+from athena.federation.utils import AthenaSDKUtils
+from athena.federation.federator import AthenaFederator
+import athena.federation.models as models
+
 
 # These variables are used for S3 spill locations
 S3_BUCKET = os.environ['TARGET_BUCKET']
+CATALOG_NAME = "gmail"
 # S3_PREFIX = os.environ['TARGET_PREFIX'].rstrip('/')  # Ensure that the prefix does *not* have a slash at the end
 
 
@@ -24,37 +25,38 @@ class GmailAthena(AthenaFederator):
     def __init__(self, event) -> None:
         super().__init__(event)
 
-    def PingRequest(self) -> PingResponse:
-        return PingResponse("gmail", self.event['queryId'], "gmail")
+    def PingRequest(self) -> models.PingResponse:
+        return models.PingResponse(CATALOG_NAME, self.event['queryId'], "gmail")
 
     def ListSchemasRequest(self):
-        return ListSchemasResponse("gmail", ['personal'])
+        return models.ListSchemasResponse(CATALOG_NAME, ['personal'])
 
-    def ListTablesRequest(self) -> ListTablesResponse:
-        tableResponse = ListTablesResponse("gmail")
+    def ListTablesRequest(self) -> models.ListTablesResponse:
+        tableResponse = models.ListTablesResponse(CATALOG_NAME)
         tableResponse.addTableDefinition("personal", "All Mail")
         return tableResponse
 
-    def GetTableRequest(self) -> GetTableResponse:
+    def GetTableRequest(self) -> models.GetTableResponse:
         schema = pa.schema([('messageId', pa.string()),
                             ('subject', pa.string()),
                             ('from', pa.string()),
                             ('sentDate', pa.string()),
                             ('meta_gmailquery', pa.string())])
-        tr = GetTableResponse("gmail", "personal", "All Mail", schema)
+        tr = models.GetTableResponse(
+            CATALOG_NAME, "personal", "All Mail", schema)
         return tr
 
-    def GetTableLayoutRequest(self) -> GetTableLayoutResponse:
-        default_partition_schema = {
-            "aId": str(uuid4()),
-            "schema": "nAAAABAAAAAAAAoADgAGAA0ACAAKAAAAAAADABAAAAAAAQoADAAAAAgABAAKAAAACAAAAAgAAAAAAAAAAQAAABgAAAAAABIAGAAUABMAEgAMAAAACAAEABIAAAAUAAAAFAAAABwAAAAAAAIBIAAAAAAAAAAAAAAACAAMAAgABwAIAAAAAAAAASAAAAALAAAAcGFydGl0aW9uSWQAAAAAAA==",
-            "records": "jAAAABQAAAAAAAAADAAWAA4AFQAQAAQADAAAABAAAAAAAAAAAAADABAAAAAAAwoAGAAMAAgABAAKAAAAFAAAADgAAAABAAAAAAAAAAAAAAACAAAAAAAAAAAAAAABAAAAAAAAAAgAAAAAAAAABAAAAAAAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAAAAAAA=="
-        }
-        tlr = GetTableLayoutResponse(
-            "gmail", "personal", "All Mail", default_partition_schema)
-        return tlr
+    def GetTableLayoutRequest(self) -> models.GetTableLayoutResponse:
+        # There are a lot of search operators built into Gmail ( https://support.google.com/mail/answer/7190?hl=en )
+        # and, as such, probably a lot of things we _can_ partition on.
+        # We won't partition yet, but at the very least it probably makes sense to partition on date...
 
-    def GetSplitsRequest(self) -> GetSplitsResponse:
+        # The partition schema above was reused from CloudTrail example - we need to
+        # add (also?) the schema we want to pass back in a split?
+        # e.g. messageIds: pa.list_(pa.int64())
+        return models.GetTableLayoutResponse(CATALOG_NAME, "personal", "All Mail", None)
+
+    def GetSplitsRequest(self) -> models.GetSplitsResponse:
         splits = [
             {
                 "spillLocation": {
@@ -66,13 +68,11 @@ class GmailAthena(AthenaFederator):
                 "properties": {}
             }
         ]
-        sr = GetSplitsResponse("gmail", splits)
-        return sr
+        return models.GetSplitsResponse(CATALOG_NAME, splits)
 
-    def ReadRecordsRequest(self) -> ReadRecordsResponse:
-        schema = self._parse_schema(self.event['schema']['schema'])
-        # pa_records = self._get_sample_records(schema)
-        # return ReadRecordsResponse("gmail", schema, pa_records)
+    def ReadRecordsRequest(self) -> models.ReadRecordsResponse:
+        schema = AthenaSDKUtils.parse_encoded_schema(
+            self.event['schema']['schema'])
 
         # Try to get a list of message IDs from the gmail API
         svc = self._get_gmail_service()
@@ -104,13 +104,8 @@ class GmailAthena(AthenaFederator):
         # .execute() is a blocking function
 
         # Convert the records to pyarrow records
-        pa_records = pa.RecordBatch.from_arrays(
-            [pa.array(records[name]) for name in schema.names], schema=schema)
-        rrr = ReadRecordsResponse("gmail", schema, pa_records)
-        return rrr
-
-    def _parse_schema(self, encoded_schema):
-        return pa.read_schema(pa.BufferReader(base64.b64decode(encoded_schema)))
+        pa_records = AthenaSDKUtils.encode_pyarrow_records(schema, records)
+        return models.ReadRecordsResponse(CATALOG_NAME, schema, pa_records)
 
     def _get_sample_records(self, schema):
         # records = {k: [] for k in schema.names}
